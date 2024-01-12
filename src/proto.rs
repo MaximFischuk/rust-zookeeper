@@ -21,6 +21,8 @@ pub enum OpCode {
 
     Create2 = 15,
     CreateTtl = 21,
+
+    GetAllChildrenNumber = 104,
 }
 
 pub type ByteBuf = Cursor<Vec<u8>>;
@@ -430,6 +432,28 @@ impl ReadFrom for GetChildrenResponse {
             children.push(reader.read_string()?);
         }
         Ok(GetChildrenResponse { children })
+    }
+}
+
+pub struct GetAllChildrenNumberRequest {
+    pub path: String,
+}
+
+impl WriteTo for GetAllChildrenNumberRequest {
+    fn write_to(&self, writer: &mut dyn Write) -> Result<()> {
+        self.path.write_to(writer)
+    }
+}
+
+pub struct GetAllChildrenNumberResponse {
+    pub total_number: i32,
+}
+
+impl ReadFrom for GetAllChildrenNumberResponse {
+    fn read_from<R: Read>(reader: &mut R) -> Result<GetAllChildrenNumberResponse> {
+        Ok(GetAllChildrenNumberResponse {
+            total_number: reader.read_i32::<BigEndian>()?,
+        })
     }
 }
 

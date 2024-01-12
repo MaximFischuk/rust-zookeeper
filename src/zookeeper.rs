@@ -15,9 +15,10 @@ use crate::listeners::ListenerSet;
 use crate::proto::{
     to_len_prefixed_buf, AuthRequest, ByteBuf, Create2Response, CreateRequest, CreateResponse,
     CreateTTLRequest, DeleteRequest, EmptyRequest, EmptyResponse, ExistsRequest, ExistsResponse,
-    GetAclRequest, GetAclResponse, GetChildrenRequest, GetChildrenResponse, GetDataRequest,
-    GetDataResponse, OpCode, ReadFrom, ReplyHeader, RequestHeader, SetAclRequest, SetAclResponse,
-    SetDataRequest, SetDataResponse, WriteTo,
+    GetAclRequest, GetAclResponse, GetAllChildrenNumberRequest, GetAllChildrenNumberResponse,
+    GetChildrenRequest, GetChildrenResponse, GetDataRequest, GetDataResponse, OpCode, ReadFrom,
+    ReplyHeader, RequestHeader, SetAclRequest, SetAclResponse, SetDataRequest, SetDataResponse,
+    WriteTo,
 };
 use crate::watch::ZkWatch;
 use crate::{
@@ -583,6 +584,32 @@ impl ZooKeeper {
             .await?;
 
         Ok(response.children)
+    }
+
+    /// Return the number of children of the node of the given `path`.
+    /// This operation returns the number of children recursively.
+    /// For example, given the following tree:
+    /// ```text
+    /// /test
+    /// /test/child1
+    /// /test/child2/child21
+    /// /test/child3/child31/child311
+    /// ```
+    /// The number of children of `/test` is 6.
+    ///
+    /// # Errors
+    /// If no node with the given path exists, `Err(ZkError::NoNode)` will be returned.
+    pub async fn get_all_children_number(&self, path: &str) -> ZkResult<i32> {
+        trace!("ZooKeeper::get_all_children_number");
+        let req = GetAllChildrenNumberRequest {
+            path: self.path(path)?,
+        };
+
+        let response: GetAllChildrenNumberResponse = self
+            .request(OpCode::GetAllChildrenNumber, self.xid(), req, None)
+            .await?;
+
+        Ok(response.total_number)
     }
 
     /// Return the data and the `Stat` of the node of the given path.
