@@ -118,7 +118,7 @@ impl<W: Watcher> ZkWatch<W> {
             WatchMessage::Watch(watch) => {
                 self.watches
                     .entry(watch.path.clone())
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(watch);
             }
         }

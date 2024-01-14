@@ -101,7 +101,7 @@ async fn delete_recursive_test() {
     .await
     .unwrap();
 
-    let tree = vec![
+    let tree = [
         "/root/a/1",
         "/root/a/2",
         "/root/a/3",

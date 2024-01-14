@@ -58,7 +58,6 @@ async fn zk_ttl_test() {
     assert!(exists.is_ok(), "exists failed: {:?}", exists);
     assert!(exists.unwrap().is_none(), "value should not be exist");
 
-
     cluster.kill_an_instance();
 
     // After closing the client all operations return Err
@@ -85,12 +84,10 @@ async fn zk_create2_test() {
     match create {
         Ok((path, _stat)) if path == "/create2_test" => {}
         Ok((path, _stat)) => {
-            println!("create2 failed: {:?}", path);
-            assert!(false);
+            panic!("create2 failed: {:?}", path);
         }
         Err(e) => {
-            println!("create2 failed: {:?}", e);
-            assert!(false);
+            panic!("create2 failed: {:?}", e);
         }
     }
 
@@ -124,12 +121,10 @@ async fn zk_create2_sequential_test() {
     match create {
         Ok((path, _stat)) if path == "/create2_test0000000000" => {}
         Ok((path, _stat)) => {
-            println!("create2 failed: {:?}", path);
-            assert!(false);
+            panic!("create2 failed: {:?}", path);
         }
         Err(e) => {
-            println!("create2 failed: {:?}", e);
-            assert!(false);
+            panic!("create2 failed: {:?}", e);
         }
     }
 
@@ -164,12 +159,10 @@ async fn zk_create2_with_ttl_test() {
     match create {
         Ok((path, _stat)) if path == "/create2_test" => {}
         Ok((path, _stat)) => {
-            println!("create2 failed: {:?}", path);
-            assert!(false);
+            panic!("create2 failed: {:?}", path);
         }
         Err(e) => {
-            println!("create2 failed: {:?}", e);
-            assert!(false);
+            panic!("create2 failed: {:?}", e);
         }
     }
 

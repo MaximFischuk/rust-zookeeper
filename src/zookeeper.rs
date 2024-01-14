@@ -16,9 +16,9 @@ use crate::proto::{
     to_len_prefixed_buf, AuthRequest, ByteBuf, Create2Response, CreateRequest, CreateResponse,
     CreateTTLRequest, DeleteRequest, EmptyRequest, EmptyResponse, ExistsRequest, ExistsResponse,
     GetAclRequest, GetAclResponse, GetAllChildrenNumberRequest, GetAllChildrenNumberResponse,
-    GetChildrenRequest, GetChildrenResponse, GetDataRequest, GetDataResponse, OpCode, ReadFrom,
-    ReplyHeader, RequestHeader, SetAclRequest, SetAclResponse, SetDataRequest, SetDataResponse,
-    WriteTo,
+    GetChildren2Request, GetChildren2Response, GetChildrenRequest, GetChildrenResponse,
+    GetDataRequest, GetDataResponse, OpCode, ReadFrom, ReplyHeader, RequestHeader, SetAclRequest,
+    SetAclResponse, SetDataRequest, SetDataResponse, WriteTo,
 };
 use crate::watch::ZkWatch;
 use crate::{
@@ -584,6 +584,33 @@ impl ZooKeeper {
             .await?;
 
         Ok(response.children)
+    }
+
+    /// Return the list of the children and stat of the node of the given `path`. The returned values are not
+    /// prefixed with the provided `path`; i.e. if the database contains `/path/a` and `/path/b`,
+    /// the result of `get_children` for `"/path"` will be `["a", "b"]`.
+    ///
+    /// If the `watch` is `true` and the call is successful (no error is returned), a watch will be
+    /// left on the node with the given path. The watch will be triggered by a successful operation
+    /// that deletes the node of the given path or creates/delete a child under the node.
+    ///
+    /// The list of children returned is not sorted and no guarantee is provided as to its natural
+    /// or lexical order.
+    ///
+    /// # Errors
+    /// If no node with the given path exists, `Err(ZkError::NoNode)` will be returned.
+    pub async fn get_children2(&self, path: &str, watch: bool) -> ZkResult<(Vec<String>, Stat)> {
+        trace!("ZooKeeper::get_children2");
+        let req = GetChildren2Request {
+            path: self.path(path)?,
+            watch,
+        };
+
+        let response: GetChildren2Response = self
+            .request(OpCode::GetChildren2, self.xid(), req, None)
+            .await?;
+
+        Ok((response.children, response.stat))
     }
 
     /// Return the number of children of the node of the given `path`.

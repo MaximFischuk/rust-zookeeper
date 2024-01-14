@@ -19,6 +19,8 @@ pub enum OpCode {
     Ping = 11,
     CloseSession = -11,
 
+    GetChildren2 = 12,
+
     Create2 = 15,
     CreateTtl = 21,
 
@@ -432,6 +434,25 @@ impl ReadFrom for GetChildrenResponse {
             children.push(reader.read_string()?);
         }
         Ok(GetChildrenResponse { children })
+    }
+}
+
+pub type GetChildren2Request = StringAndBoolRequest;
+
+pub struct GetChildren2Response {
+    pub children: Vec<String>,
+    pub stat: Stat,
+}
+
+impl ReadFrom for GetChildren2Response {
+    fn read_from<R: Read>(reader: &mut R) -> Result<GetChildren2Response> {
+        let len = reader.read_i32::<BigEndian>()?;
+        let mut children = Vec::with_capacity(len as usize);
+        for _ in 0..len {
+            children.push(reader.read_string()?);
+        }
+        let stat = Stat::read_from(reader)?;
+        Ok(GetChildren2Response { children, stat })
     }
 }
 

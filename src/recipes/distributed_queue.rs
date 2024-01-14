@@ -69,7 +69,7 @@ impl DistributedQueue {
             match self.claim(&format!("{}/{}", self.path, child)).await {
                 // if the claim fails because the requested znode has been deleted, assume
                 // someone else claimed it and try again
-                Err(e) if e == ZkError::NoNode => Ok(None),
+                Err(ZkError::NoNode) => Ok(None),
                 // any other error should be passed up
                 Err(e) => Err(e),
                 Ok(claim) => Ok(Some(claim)),
