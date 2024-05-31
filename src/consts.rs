@@ -7,6 +7,9 @@ use num_enum::*;
 )]
 #[repr(i32)]
 pub enum ZkError {
+    /// Operation completed successfully.
+    /// This code is used to indicate success in transaction operations.
+    Ok = 0,
     /// This code is never returned from the server. It should not be used other than to indicate a
     /// range. Specifically error codes greater than this value are API errors (while values less
     /// than this indicate a system error).

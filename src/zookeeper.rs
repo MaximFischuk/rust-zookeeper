@@ -1,3 +1,4 @@
+use num_enum::FromPrimitive;
 use std::convert::From;
 use std::fmt::{Debug, Formatter, Result as FmtResult};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -16,13 +17,14 @@ use crate::proto::{
     to_len_prefixed_buf, AuthRequest, ByteBuf, Create2Response, CreateRequest, CreateResponse,
     CreateTTLRequest, DeleteRequest, EmptyRequest, EmptyResponse, ExistsRequest, ExistsResponse,
     GetAclRequest, GetAclResponse, GetAllChildrenNumberRequest, GetAllChildrenNumberResponse,
-    GetChildrenRequest, GetChildrenResponse, GetDataRequest, GetDataResponse, OpCode, ReadFrom,
-    ReplyHeader, RequestHeader, SetAclRequest, SetAclResponse, SetDataRequest, SetDataResponse,
-    WriteTo,
+    GetChildrenRequest, GetChildrenResponse, GetDataRequest, GetDataResponse, MultiRequest,
+    MultiResponse, Op, OpCode, OpResponse, ReadFrom, ReplyHeader, RequestHeader, SetAclRequest,
+    SetAclResponse, SetDataRequest, SetDataResponse, WriteTo,
 };
 use crate::watch::ZkWatch;
 use crate::{
-    Acl, CreateMode, Stat, Subscription, Watch, WatchType, WatchedEvent, Watcher, ZkError, ZkState,
+    Acl, CreateMode, OperationResult, Read, ReadOperationResult, Stat, Subscription, Transaction,
+    Watch, WatchType, WatchedEvent, Watcher, ZkError, ZkState,
 };
 
 /// Value returned from potentially-error operations.
@@ -440,6 +442,121 @@ impl ZooKeeper {
         let _: EmptyResponse = self.request(OpCode::Delete, self.xid(), req, None).await?;
 
         Ok(())
+    }
+
+    /// Create a new transaction builder. A transaction is a set of operations that are executed
+    /// atomically.
+    pub fn transaction(&self) -> Transaction {
+        Transaction::new(self)
+    }
+
+    pub(crate) async fn multi(&self, mut ops: Vec<Op>) -> ZkResult<Vec<OperationResult>> {
+        trace!("ZooKeeper::multi_op");
+        for operation in ops.iter_mut() {
+            match operation {
+                Op::Check(op) => {
+                    op.path = self.path(op.path.as_str())?;
+                }
+                Op::Create(op) => {
+                    op.path = self.path(op.path.as_str())?;
+                }
+                Op::Create2(op) => {
+                    op.path = self.path(op.path.as_str())?;
+                }
+                Op::CreateTtl(op) => {
+                    op.path = self.path(op.path.as_str())?;
+                }
+                Op::SetData(op) => {
+                    op.path = self.path(op.path.as_str())?;
+                }
+                Op::Delete(op) => {
+                    op.path = self.path(op.path.as_str())?;
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        let req = MultiRequest { ops };
+
+        let response: MultiResponse = self.request(OpCode::Multi, self.xid(), req, None).await?;
+
+        let mut result = Vec::with_capacity(response.results.len());
+
+        for r in response.results {
+            let op_result = match r {
+                OpResponse::Create(r) => OperationResult::Create(self.cut_chroot(r.path)),
+                OpResponse::Create2(r) => OperationResult::Create2(self.cut_chroot(r.path), r.stat),
+                OpResponse::CreateTtl(r) => {
+                    OperationResult::CreateTtl(self.cut_chroot(r.path), r.stat)
+                }
+                OpResponse::SetData(r) => OperationResult::SetData(r.stat),
+                OpResponse::Delete => OperationResult::Delete,
+                OpResponse::Check => OperationResult::Check,
+
+                OpResponse::Error(0) => {
+                    // ignore successful operations, because there is guarantee non zero error when some operation is failed
+                    continue;
+                }
+                OpResponse::Error(err) => return Err(ZkError::from_primitive(err)),
+
+                OpResponse::GetChildren(_) | OpResponse::GetData(_) => {
+                    unreachable!()
+                }
+            };
+
+            result.push(op_result);
+        }
+
+        Ok(result)
+    }
+
+    /// Create a new read builder. This is a set of read operations that are executed atomically.
+    pub fn read(&self) -> Read {
+        Read::new(self)
+    }
+
+    pub(crate) async fn multi_read(&self, mut ops: Vec<Op>) -> ZkResult<Vec<ReadOperationResult>> {
+        trace!("ZooKeeper::multi_read");
+        for operation in ops.iter_mut() {
+            match operation {
+                Op::GetChildren(op) => {
+                    op.path = self.path(op.path.as_str())?;
+                }
+                Op::GetData(op) => {
+                    op.path = self.path(op.path.as_str())?;
+                }
+                _ => unreachable!(),
+            }
+        }
+
+        let req = MultiRequest { ops };
+
+        let response: MultiResponse = self
+            .request(OpCode::MultiRead, self.xid(), req, None)
+            .await?;
+
+        let mut result = Vec::with_capacity(response.results.len());
+
+        for r in response.results {
+            let op_result = match r {
+                OpResponse::GetData(r) => {
+                    ReadOperationResult::GetData(r.data_stat.0, r.data_stat.1)
+                }
+                OpResponse::GetChildren(r) => ReadOperationResult::GetChildren(r.children),
+
+                OpResponse::Error(0) => {
+                    // ignore successful operations, because there is guarantee non zero error when some operation is failed
+                    continue;
+                }
+                OpResponse::Error(err) => return Err(ZkError::from_primitive(err)),
+
+                _ => unreachable!(),
+            };
+
+            result.push(op_result);
+        }
+
+        Ok(result)
     }
 
     /// Return the `Stat` of the node of the given `path` or `None` if no such node exists.

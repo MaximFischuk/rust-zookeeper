@@ -19,10 +19,43 @@ pub enum OpCode {
     Ping = 11,
     CloseSession = -11,
 
+    Check = 13,
+    Multi = 14,
     Create2 = 15,
     CreateTtl = 21,
+    MultiRead = 22,
 
     GetAllChildrenNumber = 104,
+
+    Error = -1,
+}
+
+impl TryFrom<i32> for OpCode {
+    type Error = Error;
+
+    fn try_from(value: i32) -> Result<Self> {
+        match value {
+            1 => Ok(OpCode::Create),
+            2 => Ok(OpCode::Delete),
+            3 => Ok(OpCode::Exists),
+            4 => Ok(OpCode::GetData),
+            5 => Ok(OpCode::SetData),
+            6 => Ok(OpCode::GetAcl),
+            7 => Ok(OpCode::SetAcl),
+            8 => Ok(OpCode::GetChildren),
+            11 => Ok(OpCode::Ping),
+            -11 => Ok(OpCode::CloseSession),
+            13 => Ok(OpCode::Check),
+            14 => Ok(OpCode::Multi),
+            15 => Ok(OpCode::Create2),
+            21 => Ok(OpCode::CreateTtl),
+            22 => Ok(OpCode::MultiRead),
+            100 => Ok(OpCode::Auth),
+            104 => Ok(OpCode::GetAllChildrenNumber),
+            -1 => Ok(OpCode::Error),
+            _ => Err(error("Invalid op code")),
+        }
+    }
 }
 
 pub type ByteBuf = Cursor<Vec<u8>>;
@@ -418,6 +451,168 @@ impl WriteTo for SetDataRequest {
 
 pub type SetDataResponse = StatResponse;
 
+pub enum Op {
+    Create(CreateRequest),
+    Create2(CreateRequest),
+    CreateTtl(CreateTTLRequest),
+    SetData(SetDataRequest),
+    Delete(DeleteRequest),
+    Check(CheckRequest),
+
+    // Read operations
+    GetData(StringAndBoolRequest),
+    GetChildren(StringAndBoolRequest),
+}
+
+struct MultiHeader {
+    op: i32,
+    done: bool,
+    err: i32,
+}
+
+impl MultiHeader {
+    pub fn new(op: OpCode) -> MultiHeader {
+        MultiHeader {
+            op: op as i32,
+            done: false,
+            err: -1,
+        }
+    }
+
+    pub fn done() -> MultiHeader {
+        MultiHeader {
+            op: -1,
+            done: true,
+            err: -1,
+        }
+    }
+
+    pub fn is_done(&self) -> bool {
+        self.done
+    }
+}
+
+impl WriteTo for MultiHeader {
+    fn write_to(&self, writer: &mut dyn Write) -> Result<()> {
+        writer.write_i32::<BigEndian>(self.op)?;
+        writer.write_u8(self.done as u8)?;
+        writer.write_i32::<BigEndian>(self.err)?;
+        Ok(())
+    }
+}
+
+impl ReadFrom for MultiHeader {
+    fn read_from<R: Read>(reader: &mut R) -> Result<MultiHeader> {
+        Ok(MultiHeader {
+            op: reader.read_i32::<BigEndian>()?,
+            done: reader.read_u8()? != 0,
+            err: reader.read_i32::<BigEndian>()?,
+        })
+    }
+}
+
+pub struct MultiRequest {
+    pub ops: Vec<Op>,
+}
+
+impl WriteTo for MultiRequest {
+    fn write_to(&self, writer: &mut dyn Write) -> Result<()> {
+        for op in &self.ops {
+            match op {
+                Op::Create(req) => {
+                    MultiHeader::new(OpCode::Create).write_to(writer)?;
+                    req.write_to(writer)?;
+                }
+                Op::Create2(req) => {
+                    MultiHeader::new(OpCode::Create2).write_to(writer)?;
+                    req.write_to(writer)?;
+                }
+                Op::CreateTtl(req) => {
+                    MultiHeader::new(OpCode::CreateTtl).write_to(writer)?;
+                    req.write_to(writer)?;
+                }
+                Op::SetData(req) => {
+                    MultiHeader::new(OpCode::SetData).write_to(writer)?;
+                    req.write_to(writer)?;
+                }
+                Op::Delete(req) => {
+                    MultiHeader::new(OpCode::Delete).write_to(writer)?;
+                    req.write_to(writer)?;
+                }
+                Op::Check(req) => {
+                    MultiHeader::new(OpCode::Check).write_to(writer)?;
+                    req.write_to(writer)?;
+                }
+                Op::GetData(req) => {
+                    MultiHeader::new(OpCode::GetData).write_to(writer)?;
+                    req.write_to(writer)?;
+                }
+                Op::GetChildren(req) => {
+                    MultiHeader::new(OpCode::GetChildren).write_to(writer)?;
+                    req.write_to(writer)?;
+                }
+            }
+        }
+
+        MultiHeader::done().write_to(writer)?;
+        Ok(())
+    }
+}
+
+pub enum OpResponse {
+    Create(CreateResponse),
+    Create2(Create2Response),
+    CreateTtl(Create2Response),
+    SetData(SetDataResponse),
+    Delete,
+    Check,
+
+    // Read operations
+    GetData(GetDataResponse),
+    GetChildren(GetChildrenResponse),
+
+    // Error
+    Error(i32),
+}
+
+pub struct MultiResponse {
+    pub results: Vec<OpResponse>,
+}
+
+impl ReadFrom for MultiResponse {
+    fn read_from<R: Read>(reader: &mut R) -> Result<MultiResponse> {
+        let mut results = Vec::new();
+        loop {
+            let header = MultiHeader::read_from(reader)?;
+            if header.is_done() {
+                break;
+            }
+
+            let result = match OpCode::try_from(header.op) {
+                Ok(OpCode::Create) => OpResponse::Create(CreateResponse::read_from(reader)?),
+                Ok(OpCode::Create2) => OpResponse::Create2(Create2Response::read_from(reader)?),
+                Ok(OpCode::CreateTtl) => OpResponse::CreateTtl(Create2Response::read_from(reader)?),
+                Ok(OpCode::SetData) => OpResponse::SetData(SetDataResponse::read_from(reader)?),
+                Ok(OpCode::Delete) => OpResponse::Delete,
+                Ok(OpCode::Check) => OpResponse::Check,
+                Ok(OpCode::GetData) => OpResponse::GetData(GetDataResponse::read_from(reader)?),
+                Ok(OpCode::GetChildren) => {
+                    OpResponse::GetChildren(GetChildrenResponse::read_from(reader)?)
+                }
+                Ok(OpCode::Error) => {
+                    let err = reader.read_i32::<BigEndian>()?;
+                    OpResponse::Error(err)
+                }
+                _ => return Err(error("Invalid op code")),
+            };
+
+            results.push(result);
+        }
+
+        Ok(MultiResponse { results })
+    }
+}
+
 pub type GetChildrenRequest = StringAndBoolRequest;
 
 pub struct GetChildrenResponse {
@@ -516,5 +711,18 @@ impl ReadFrom for WatchedEvent {
             keeper_state: state,
             path: Some(path),
         })
+    }
+}
+
+pub struct CheckRequest {
+    pub path: String,
+    pub version: i32,
+}
+
+impl WriteTo for CheckRequest {
+    fn write_to(&self, writer: &mut dyn Write) -> Result<()> {
+        self.path.write_to(writer)?;
+        writer.write_i32::<BigEndian>(self.version)?;
+        Ok(())
     }
 }

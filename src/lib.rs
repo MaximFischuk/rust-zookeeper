@@ -5,6 +5,7 @@ mod consts;
 mod data;
 mod io;
 mod listeners;
+mod multi_op;
 mod paths;
 mod proto;
 pub mod recipes;
@@ -16,6 +17,7 @@ pub use self::zookeeper::{ZkResult, ZooKeeper};
 pub use acl::*;
 pub use consts::*;
 pub use data::*;
+pub use multi_op::*;
 pub use watch::{Watch, WatchType, WatchedEvent, Watcher};
 pub use zookeeper_ext::ZooKeeperExt;
 
